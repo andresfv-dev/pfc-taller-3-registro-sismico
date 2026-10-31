@@ -8,18 +8,41 @@ package taller
  */
 class RegistroSismico {
 
-  type Registro = List[Sismo]
+ type Registro = List[Sismo]
 
-  // Punto 1: consultas con expresiones for --------------------------------------
+ // Punto 1: consultas con expresiones for --------------------------------------
 
-  /** Las regiones de los sismos que superan el umbral, en orden y con repetidos. */
-  def fuertes(r: Registro, umbral: Double): List[String] = ???
+ /** Las regiones de los sismos que superan el umbral, en orden y con repetidos. */
+ def fuertes(r: Registro, umbral: Double): List[String] = {
+  for {
+   sismo <- r
+   if (sismo.magnitud > umbral)
+  } yield sismo.region
+ }
 
-  /** Las magnitudes registradas en una región. */
-  def enRegion(r: Registro, region: String): List[Double] = ???
+ /** Las magnitudes registradas en una región. */
+ def enRegion(r: Registro, region: String): List[Double] = {
+  for {
+   sismo <- r
+   if (sismo.region == region)
+  } yield sismo.magnitud
+ }
 
-  /** Parejas de regiones distintas con algún sismo de magnitudes cercanas. */
-  def paresCercanos(r: Registro, dif: Double): List[(String, String)] = ???
+
+ /** Parejas de regiones distintas con algún sismo de magnitudes cercanas. */
+ def paresCercanos(r: Registro, dif: Double): List[(String, String)] = {
+
+  val regiones = r.map(_.region).distinct
+  for {
+   region1 :: resto <- regiones.tails.toList
+   region2 <- resto
+   if ((for {
+     magnitud1 <- enRegion(r, region1)
+     magnitud2 <- enRegion(r, region2)
+     if (math.abs(magnitud1 - magnitud2) <= dif)
+   } yield (magnitud1, magnitud2)) != List())
+  } yield (region1, region2)
+ }
 
   // Punto 2: agrupar con mapas --------------------------------------------------
 
@@ -54,4 +77,4 @@ class RegistroSismico {
 
   /** Conteo, magnitud máxima y réplicas esperadas del sismo más fuerte, por región. */
   def informe(r: Registro, minimo: Double): Map[String, Resumen] = ???
-}
+ }
