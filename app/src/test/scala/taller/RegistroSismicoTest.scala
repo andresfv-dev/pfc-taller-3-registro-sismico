@@ -66,6 +66,29 @@ class RegistroSismicoTest extends AnyFunSuite {
     assert(paresCercanos(registro, 5.0).forall { case (a, b) => a != b })
   }
 
+  // Punto 1: pruebas propias --------------------------------------------------
+
+  test("propia fuertes: con umbral 4.5 salen cuatro, en orden y con repetidos") {
+    assert(fuertes(registro, 4.5) == List("Santander", "Choco", "Santander", "Valle"))
+  }
+
+  test("propia fuertes: con umbral 5.3 el Valle no sale porque es estricto") {
+    assert(fuertes(registro, 5.3) == List("Choco"))
+  }
+
+  test("propia enRegion: las magnitudes del Choco, en orden") {
+    assert(enRegion(registro, "Choco") == List(6.0, 3.1))
+  }
+
+  test("propia enRegion: distingue mayúsculas, valle no es Valle") {
+    assert(enRegion(registro, "valle") == List())
+  }
+
+  test("propia paresCercanos: con 0.8 salen Valle-Santander y Valle-Choco") {
+    assert(paresCercanos(registro, 0.8) ==
+      List(("Valle", "Santander"), ("Valle", "Choco")))
+  }
+
   // Punto 2 -------------------------------------------------------------------
 
   test("porRegion: agrupa los siete sismos en tres regiones") {
@@ -89,6 +112,28 @@ class RegistroSismicoTest extends AnyFunSuite {
 
   test("magnitudMaxima: las regiones ausentes no aparecen") {
     assert(!magnitudMaxima(registro).contains("Amazonas"))
+  }
+
+  // Punto 2: pruebas propias --------------------------------------------------
+
+  test("propia porRegion: el grupo del Valle conserva el orden del registro") {
+    assert(porRegion(registro)("Valle").map(_.magnitud) == List(4.2, 3.8, 5.3))
+  }
+
+  test("propia porRegion: todos los sismos del grupo Choco son del Choco") {
+    assert(porRegion(registro)("Choco").forall(_.region == "Choco"))
+  }
+
+  test("propia porRegion: el registro vacío da el mapa vacío") {
+    assert(porRegion(vacio) == Map())
+  }
+
+  test("propia magnitudMaxima: el registro vacío da el mapa vacío") {
+    assert(magnitudMaxima(vacio) == Map())
+  }
+
+  test("propia conteoPorRegion: no depende del orden del registro") {
+    assert(conteoPorRegion(registro.reverse) == conteoPorRegion(registro))
   }
 
   // Punto 3 -------------------------------------------------------------------

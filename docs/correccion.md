@@ -1,279 +1,368 @@
-# Ejemplo de informe de corrección
+# Informe de corrección
 
 Fundamentos de Programación Funcional y Concurrente.
-Documento realizado por el docente Juan Francisco Díaz.
+Taller 3 — Consultas sobre un registro sísmico.
 
-## 1. Argumentar la corrección de programas recursivos
+## Cómo se argumenta la corrección en este taller
 
-Sea $f : A \to B$ una función, y $A$ un conjunto definido recursivamente
-(recordar la definición de Matemáticas Discretas I), como por ejemplo los
-naturales o las listas.
-
-Sea $P_f$ un programa recursivo (lineal o en árbol) desarrollado en Scala (o en
-cualquier lenguaje de programación) hecho para calcular $f$:
-
-```scala
-def Pf(a: A): B = { // Pf recibe a de tipo A, y devuelve f(a) de tipo B
-  ...
-}
-```
-
-¿Cómo argumentar que $P_f(a)$ siempre devuelve $f(a)$ como respuesta? Es decir,
-¿cómo argumentar que $P_f$ es correcto con respecto a su especificación?
-
-La respuesta es sencilla: demostrando el siguiente teorema.
+Igual que en el ejemplo del factorial, para cada función $P_f$ se demuestra
+que siempre devuelve lo que pide su especificación $f$:
 
 ```math
 \forall a \in A : P_f(a) == f(a)
 ```
 
-Cuando uno tiene que demostrar que algo se cumple para todos los elementos de
-un conjunto definido recursivamente, es natural usar inducción estructural. En
-términos prácticos, esto significa demostrar que:
+Las funciones del punto 1 no son recursivas a mano: recorren una lista con una
+expresión `for`. Pero las listas son un conjunto **definido recursivamente**:
 
-- Para cada valor básico $a$ de $A$, se tiene que $P_f(a) == f(a)$.
-- Para cada valor $a \in A$ construido recursivamente a partir de otro(s)
-  valor(es) $a' \in A$, se tiene que
-  $P_f(a') == f(a') \rightarrow P_f(a) == f(a)$. (Esta es la hipótesis de
-  inducción).
+- $\text{List}()$ es una lista (valor básico).
+- Si $s$ es un elemento y $l$ es una lista, $s :: l$ es una lista (valor
+  construido a partir de otro).
 
-### Ejemplo: factorial recursivo
+Entonces se usa **inducción estructural sobre la lista que recorre el `for`**:
 
-Sea $f : \mathbb{N} \to \mathbb{N}$ la función que calcula el factorial de un
-número natural, es decir, $f(n) = n!$. Y sea $P_f$ el siguiente programa en
-Scala:
+- **Caso base:** la lista vacía, $\text{List}()$.
+- **Caso de inducción:** la lista $s :: r'$ (un sismo $s$ al frente de una
+  lista $r'$ más corta). La hipótesis de inducción (HI) es que el programa es
+  correcto para $r'$.
+
+### Cómo se evalúa un `for` (modelo de sustitución)
+
+El compilador traduce un `for` con un generador y un filtro así:
 
 ```scala
-def Pf(n: Int): Int = { // Pf recibe n de tipo Int, y devuelve n! de tipo Int
-  if (n == 0) 1 else n * Pf(n - 1)
+for { x <- l; if (c(x)) } yield g(x)   ==   l.withFilter(x => c(x)).map(x => g(x))
+```
+
+Y `withFilter` (filtrar) y `map` sobre listas cumplen estas reglas, que son
+las que se usan en las demostraciones:
+
+```math
+\text{List}().\text{withFilter}(c).\text{map}(g) \rightarrow \text{List}()
+```
+
+```math
+(s :: r').\text{withFilter}(c).\text{map}(g) \rightarrow
+\begin{cases}
+g(s) :: r'.\text{withFilter}(c).\text{map}(g) & \text{si } c(s) \\
+r'.\text{withFilter}(c).\text{map}(g) & \text{si } \neg c(s)
+\end{cases}
+```
+
+Es decir: con la lista vacía el `for` da la lista vacía, y con $s :: r'$
+revisa primero a $s$ y después sigue con el resto **en el mismo orden**.
+
+Notación: para un sismo $s$, $\text{reg}(s)$ es `s.region` y
+$\text{mag}(s)$ es `s.magnitud`.
+
+---
+
+## Punto 1: consultas con expresiones `for`
+
+### 1.1 `fuertes`
+
+```scala
+def fuertes(r: Registro, umbral: Double): List[String] = {
+  for {
+    sismo <- r
+    if (sismo.magnitud > umbral)
+  } yield sismo.region
 }
 ```
 
-Vamos a demostrar que $\forall n \in \mathbb{N} : P_f(n) == n!$
-
-**Caso base:** $n = 0$
-
-```math
-P_f(0) \rightarrow \text{if } (0 == 0)\ 1 \text{ else } 0 \ast P_f(-1) \rightarrow 1
-```
-
-Por otro lado, $f(0) = 0! = 1$. Entonces $P_f(0) == f(0)$.
-
-**Caso de inducción:** $n = k + 1$, $k \geq 0$. Hay que demostrar:
-$P_f(k) == f(k) \rightarrow P_f(k + 1) == f(k + 1)$
+**Especificación.** Sea $u$ el umbral. Para
+$r = \text{List}(s_1, s_2, \ldots, s_n)$, $f(r, u)$ es la lista de las regiones
+de los sismos con magnitud **estrictamente** mayor que $u$, en el orden del
+registro y con repetidos:
 
 ```math
-P_f(k+1) \rightarrow \text{if } (k+1 == 0)\ 1 \text{ else } (k+1) \ast P_f(k) \rightarrow (k+1) \ast P_f(k)
+f(\text{List}(s_1, \ldots, s_n), u) = \text{List}(\text{reg}(s_i) \mid 1 \le i \le n,\ \text{mag}(s_i) > u) \quad \text{(con } i \text{ creciente)}
 ```
 
-Usando la hipótesis de inducción (HI):
+De esa definición salen directamente sus dos propiedades recursivas:
 
 ```math
-\rightarrow (k+1) \ast k! = (k+1)!
+f(\text{List}(), u) = \text{List}()
 ```
 
-Por lo tanto, $P_f(k + 1) == f(k + 1)$.
+```math
+f(s :: r', u) =
+\begin{cases}
+\text{reg}(s) :: f(r', u) & \text{si } \text{mag}(s) > u \\
+f(r', u) & \text{si } \text{mag}(s) \le u
+\end{cases}
+```
 
-Concluimos por inducción que $\forall n \in \mathbb{N} : P_f(n) == n!$
+Vamos a demostrar que
+$\forall n \in \mathbb{N} : P_f(\text{List}(s_1, \ldots, s_n), u) == f(\text{List}(s_1, \ldots, s_n), u)$.
 
-### Ejemplo: el máximo de una lista
+**Caso base:** $n = 0$, $r = \text{List}()$
 
-Sea $f : \text{List}[\mathbb{N}] \to \mathbb{N}$ la función que calcula el
-máximo de una lista de enteros positivos, no vacía. Y sea $P_f$ el siguiente
-programa en Scala:
+```math
+P_f(\text{List}(), u) \rightarrow \text{List}().\text{withFilter}(\text{mag} > u).\text{map}(\text{reg}) \rightarrow \text{List}()
+```
+
+Por otro lado, $f(\text{List}(), u) = \text{List}()$ (no hay sismos que superen
+el umbral). Entonces $P_f(\text{List}(), u) == f(\text{List}(), u)$.
+
+**Caso de inducción:** $n = k + 1$, $k \ge 0$, con $r = s :: r'$ y $r'$ de
+longitud $k$. Hay que demostrar:
+
+```math
+P_f(r', u) == f(r', u) \rightarrow P_f(s :: r', u) == f(s :: r', u)
+```
+
+Por el modelo de sustitución hay dos casos:
+
+- Si $\text{mag}(s) > u$ (el filtro deja pasar a $s$):
+
+```math
+P_f(s :: r', u) \rightarrow \text{reg}(s) :: P_f(r', u) \overset{HI}{=} \text{reg}(s) :: f(r', u) = f(s :: r', u)
+```
+
+- Si $\text{mag}(s) \le u$ (el filtro no deja pasar a $s$):
+
+```math
+P_f(s :: r', u) \rightarrow P_f(r', u) \overset{HI}{=} f(r', u) = f(s :: r', u)
+```
+
+En los dos casos $P_f(s :: r', u) == f(s :: r', u)$.
+
+Concluimos por inducción que $\forall r, u : P_f(r, u) == f(r, u)$.
+
+Observaciones que la prueba confirma:
+
+- El orden se conserva, porque $\text{reg}(s)$ se pone **delante** del
+  resultado del resto.
+- Los repetidos se conservan, porque ningún paso elimina elementos ya puestos.
+- El umbral es estricto: con $\text{mag}(s) = u$ se cae en el segundo caso y
+  $s$ no aparece (por eso `fuertes(registro, 6.0)` no contiene `"Choco"`).
+
+---
+
+### 1.2 `enRegion`
 
 ```scala
-def maxLin(l: List[Int]): Int = {
-  if (l.tail.isEmpty) l.head
-  else math.max(maxLin(l.tail), l.head)
+def enRegion(r: Registro, region: String): List[Double] = {
+  for {
+    sismo <- r
+    if (sismo.region == region)
+  } yield sismo.magnitud
 }
 ```
 
-Demostraremos que:
+**Especificación.** Sea $g$ la región pedida:
 
 ```math
-\forall n \in \mathbb{N} \setminus \{0\} : P_f(\text{List}(a_1, a_2, \ldots, a_n)) == f(\text{List}(a_1, a_2, \ldots, a_n))
+f(\text{List}(s_1, \ldots, s_n), g) = \text{List}(\text{mag}(s_i) \mid 1 \le i \le n,\ \text{reg}(s_i) = g) \quad \text{(con } i \text{ creciente)}
 ```
 
-**Caso base:** $n = 1$
+Con sus propiedades recursivas:
 
 ```math
-P_f(\text{List}(a_1)) \rightarrow \text{if } \text{List}(a_1).\text{tail.isEmpty then } \text{List}(a_1).\text{head else } \ldots \rightarrow \text{List}(a_1).\text{head} \rightarrow a_1
-```
-
-Por otro lado, $f(\text{List}(a_1)) = a_1$. Entonces
-$P_f(\text{List}(a_1)) == f(\text{List}(a_1))$.
-
-**Caso de inducción:** $n = k + 1$, $k \geq 1$. Se debe demostrar:
-
-```math
-P_f(\text{List}(b_1, b_2, \ldots, b_k)) == f(\text{List}(b_1, b_2, \ldots, b_k)) \rightarrow P_f(\text{List}(a_1, a_2, \ldots, a_{k+1})) == f(\text{List}(a_1, a_2, \ldots, a_{k+1}))
-```
-
-Empecemos por calcular qué devuelve $P_f$ usando el modelo de sustitución:
-
-```math
-P_f(L) \rightarrow \text{if } L.\text{tail.isEmpty then } L.\text{head else math.max}(P_f(L.\text{tail}), L.\text{head})
+f(\text{List}(), g) = \text{List}()
 ```
 
 ```math
-\rightarrow \text{math.max}(P_f(\text{List}(a_2, \ldots, a_{k+1})), a_1)
+f(s :: r', g) =
+\begin{cases}
+\text{mag}(s) :: f(r', g) & \text{si } \text{reg}(s) = g \\
+f(r', g) & \text{si } \text{reg}(s) \ne g
+\end{cases}
 ```
 
-Sea $b = P_f(\text{List}(a_2, \ldots, a_{k+1}))$; por la hipótesis de
-inducción, $b = f(\text{List}(a_2, \ldots, a_{k+1}))$. Hay dos posibilidades:
-
-- Si $\text{math.max}(b, a_1) = b$, entonces $b \geq a_1$ y
- $b == f(\text{List}(a_1, a_2, \ldots, a_{k+1}))$.
-- Si $\text{math.max}(b, a_1) = a_1$, entonces $a_1 \geq b$ y
- $a_1 == f(\text{List}(a_1, a_2, \ldots, a_{k+1}))$.
-
-Por lo tanto, $P_f(L) == f(L)$.
-
-Concluimos por inducción que:
+**Caso base:** $r = \text{List}()$
 
 ```math
-\forall n \in \mathbb{N} \setminus \{0\} : P_f(\text{List}(a_1, a_2, \ldots, a_n)) == f(\text{List}(a_1, a_2, \ldots, a_n))
+P_f(\text{List}(), g) \rightarrow \text{List}().\text{withFilter}(\text{reg} = g).\text{map}(\text{mag}) \rightarrow \text{List}()
 ```
 
-## 2. Argumentar la corrección de programas iterativos
+Y $f(\text{List}(), g) = \text{List}()$. Entonces son iguales.
 
-Para argumentar la corrección de programas iterativos, se debe formalizar cómo
-es la iteración. Esto implica definir:
+**Caso de inducción:** $r = s :: r'$. Hay que demostrar:
 
-- Cómo se representa un estado de la iteración, $s$.
-- Cuál es el estado inicial, $s_0$.
-- Cuál es el estado final (o cómo se reconoce que un estado es final): $s_f$.
-- Qué condición (o predicado) cumple todo estado: $\text{Inv}(s)$ (invariante
-  de la iteración).
-- El mecanismo para pasar de un estado al siguiente: $\text{transformar}(s)$.
-  Si $s_i$ es el estado $i$, entonces $\text{transformar}(s_i) = s_{i+1}$.
+```math
+P_f(r', g) == f(r', g) \rightarrow P_f(s :: r', g) == f(s :: r', g)
+```
 
-Un programa iterativo tiene la siguiente forma:
+- Si $\text{reg}(s) = g$:
+
+```math
+P_f(s :: r', g) \rightarrow \text{mag}(s) :: P_f(r', g) \overset{HI}{=} \text{mag}(s) :: f(r', g) = f(s :: r', g)
+```
+
+- Si $\text{reg}(s) \ne g$:
+
+```math
+P_f(s :: r', g) \rightarrow P_f(r', g) \overset{HI}{=} f(r', g) = f(s :: r', g)
+```
+
+Concluimos por inducción que $\forall r, g : P_f(r, g) == f(r, g)$.
+
+Consecuencia que se usa en `paresCercanos`: un número $m$ está en
+`enRegion(r, g)` **si y solo si** hay un sismo de la región $g$ con magnitud
+$m$. En particular, si $g$ no aparece en $r$ (por ejemplo `"Amazonas"`), el
+resultado es $\text{List}()$.
+
+---
+
+### 1.3 `paresCercanos`
 
 ```scala
-def Pf(a: A): B = { // Pf recibe a de tipo A, y devuelve f(a) de tipo B
-  def Pf_iter(s: Estado): B =
-    if (esFinal(s)) respuesta(s) else Pf_iter(transformar(s))
-  Pf_iter(s0)
+def paresCercanos(r: Registro, dif: Double): List[(String, String)] = {
+  val regiones = r.map(_.region).distinct
+  for {
+    region1 :: resto <- regiones.tails.toList
+    region2 <- resto
+    if ((for {
+      magnitud1 <- enRegion(r, region1)
+      magnitud2 <- enRegion(r, region2)
+      if (math.abs(magnitud1 - magnitud2) <= dif)
+    } yield (magnitud1, magnitud2)) != List())
+  } yield (region1, region2)
 }
 ```
 
-Demostración de corrección:
-
-- $\text{Inv}(s_0)$: el estado inicial cumple la condición invariante.
-- Si $(s_i \neq s_f \land \text{Inv}(s_i)) \rightarrow \text{Inv}(\text{transformar}(s_i))$:
-  el nuevo estado cumple la condición invariante si el estado anterior la
-  cumplía.
-- De lo anterior se concluye $\text{Inv}(s_f)$, es decir, el estado final
-  cumple la condición invariante. Luego,
-  $\text{Inv}(s_f) \rightarrow \text{respuesta}(s_f) == f(a)$.
-- Finalmente, demostrar que siempre se llega al estado final $s_f$. Esto
-  implica que
-  $P_f(a) == \text{iter}(s_0) == \text{respuesta}(s_f) == f(a)$.
-
-### Ejemplo: factorial iterativo
-
-Considere el siguiente programa iterativo en Scala para calcular la función
-factorial:
-
-```scala
-def Pf(n: Int): Int = { // Pf recibe n de tipo Int, y devuelve n! de tipo Int
-  def Pf_iter(i: Int, n: Int, ac: Int): Int =
-    if (i > n) ac else Pf_iter(i + 1, n, i * ac)
-  Pf_iter(1, n, 1)
-}
-```
-
-Este programa implementa el siguiente proceso iterativo:
-
-- Un estado $s = (i, n, ac)$.
-- El estado inicial es $s_0 = (1, n, 1)$.
-- $(i, n, ac)$ es final si $i > n$, o lo que es lo mismo, si $i = n + 1$.
-- La invariante de ciclo es
-  $\text{Inv}(i, n, ac) \equiv i \leq n + 1 \land ac = (i-1)!$.
-  La invariante de ciclo es una relación que SIEMPRE se cumple en el ciclo.
-- $\text{transformar}((i, n, ac)) = (i+1, n, i \ast ac)$.
-
-Ahora, demostramos los puntos mencionados:
-
-**1.** $\text{Inv}(s_0)$: el estado inicial cumple la condición invariante.
+**Especificación.** Sea $d$ = `dif` y sea
+$R = \text{List}(g_1, g_2, \ldots, g_m)$ la lista de regiones distintas de $r$
+en el orden en que aparecen por primera vez. Decimos que dos regiones están
+**cerca** si:
 
 ```math
-s_0 = (1, n, 1) \implies 1 \leq n + 1 \land 1 = 0!
+\text{cerca}(a, b) \equiv \exists\, s, t \in r : \text{reg}(s) = a \land \text{reg}(t) = b \land |\text{mag}(s) - \text{mag}(t)| \le d
 ```
 
-**2.** La invariante se mantiene con la transformación de estados,
-$(s_i \neq s_f \land \text{Inv}(s_i)) \rightarrow \text{Inv}(\text{transformar}(s_i))$:
-
-1. Primer cambio, $i = i + 1$, lo que implica $ac = ((i+1) - 1)! = i!$.
-2. Segundo cambio, $ac = i \ast ac$, entonces $ac = (i - 1)! \ast i = i!$.
-3. Como se puede ver en ambos cambios indicados en la transformación, la
-   invariante se mantiene.
-
-**3.** $\text{Inv}(s_f) \rightarrow \text{respuesta}(s_f) == f(a)$
+Entonces $f(r, d)$ es la lista de parejas $(g_i, g_j)$ con $i < j$ que están
+cerca, ordenadas primero por $i$ y luego por $j$:
 
 ```math
-(n + 1 \leq n + 1) \land ac = ((n+1)-1)! \rightarrow ac == n!
+f(r, d) = \text{List}((g_i, g_j) \mid 1 \le i < j \le m,\ \text{cerca}(g_i, g_j))
 ```
 
-**4.** En cada paso, la componente $i$ del estado incrementa, acercándose a $n+1$.
-Después de $n$ iteraciones, se alcanza $n+1$.
+Como $i < j$ y las $g$ son distintas, **nunca** sale una región con ella misma
+y **cada pareja sale una sola vez**.
 
-Esto implica que $P_f(n) == \text{iter}(1, n, 1) == n!$
+La demostración se divide en tres partes (lemas).
 
-### Ejemplo: el máximo de una lista
+#### Lema 1: `regiones` es la lista $R$
 
-Se desea calcular el máximo de una lista de enteros positivos, no vacía. Sea
-$f : \text{List}[\mathbb{N}] \to \mathbb{N}$ la función que calcula ese valor.
-Y sea $P_f$ el siguiente programa en Scala:
+`r.map(_.region)` cambia cada sismo por su región, conservando el orden, y
+`.distinct` quita las repeticiones dejando la primera aparición. Por lo tanto
+`regiones` $= R = \text{List}(g_1, \ldots, g_m)$, con $g_i \ne g_j$ si
+$i \ne j$.
 
-```scala
-def maxIt(l: List[Int]): Int = {
-  def maxAux(max: Int, l: List[Int]): Int = {
-    if (l.isEmpty) max
-    else maxAux(math.max(max, l.head), l.tail)
-  }
-  maxAux(l.head, l.tail)
-}
-```
+#### Lema 2: el `for` interno decide correctamente si dos regiones están cerca
 
-Este programa implementa el siguiente proceso iterativo:
-
-- Un estado $s = (max, l)$ donde $l = \text{List}(a_i, a_{i+1}, \ldots, a_k)$
-  es una cola de $L$.
-- El estado inicial es
-  $s_0 = (L.\text{head}, L.\text{tail}) = (a_1, \text{List}(a_2, \ldots, a_k))$.
-- $s = (max, l)$ es final si $l$ es vacía.
-- $\text{Inv}(max, l) \equiv l = \text{List}(a_i, a_{i+1}, \ldots, a_k) \land max = f(\text{List}(a_1, a_2, \ldots, a_{i-1}))$.
-- $\text{transformar}((max, l)) = (nmax, l.\text{tail})$ donde $nmax = max$ si
-  $max \geq l.\text{head}$, y $nmax = l.\text{head}$ si no.
-
-Demostración de los puntos:
-
-**1.** $\text{Inv}(s_0)$: el estado inicial cumple la condición invariante.
+Sea $L_1 = $ `enRegion(r, a)` y $L_2 = $ `enRegion(r, b)`, y sea
 
 ```math
-s_0 = (a_1, \text{List}(a_2, \ldots, a_k)) \implies a_1 = f(\text{List}(a_1))
+C(L_1, L_2) = \text{for } \{ m_1 \leftarrow L_1;\ m_2 \leftarrow L_2;\ \text{if } |m_1 - m_2| \le d \} \text{ yield } (m_1, m_2)
 ```
 
-**2.** $(s_i \neq s_f \land \text{Inv}(s_i)) \rightarrow \text{Inv}(\text{transformar}(s_i))$
+Se demuestra por inducción sobre $L_1$ que:
 
 ```math
-\neg\, l.\text{isEmpty} \land l = \text{List}(a_i, a_{i+1}, \ldots, a_k) \land max = f(\text{List}(a_1, a_2, \ldots, a_{i-1}))
+C(L_1, L_2) \ne \text{List}() \iff \exists\, m_1 \in L_1,\ m_2 \in L_2 : |m_1 - m_2| \le d
+```
+
+Con dos generadores, el `for` se traduce a
+$L_1.\text{flatMap}(m_1 \Rightarrow L_2.\text{withFilter}(\ldots).\text{map}(\ldots))$,
+así que:
+
+```math
+C(\text{List}(), L_2) \rightarrow \text{List}()
 ```
 
 ```math
-\rightarrow l.\text{tail} = \text{List}(a_{i+1}, \ldots, a_k) \land nmax = f(\text{List}(a_1, \ldots, a_i))
+C(m :: L_1', L_2) \rightarrow \text{List}((m, m_2) \mid m_2 \in L_2,\ |m - m_2| \le d) \mathbin{+\!\!+} C(L_1', L_2)
 ```
 
-**3.** $\text{Inv}(s_f) \rightarrow \text{respuesta}(s_f) == f(a)$
+**Caso base:** $L_1 = \text{List}()$. $C$ da $\text{List}()$, y no existe
+ningún $m_1 \in \text{List}()$. Los dos lados de $\iff$ son falsos.
+
+**Caso de inducción:** $L_1 = m :: L_1'$, con HI para $L_1'$. La concatenación
+$A \mathbin{+\!\!+} B$ es no vacía si y solo si $A$ o $B$ lo es:
+
+- $A \ne \text{List}()$ si y solo si existe $m_2 \in L_2$ con
+  $|m - m_2| \le d$ (es un `for` de un generador y un filtro, como en 1.1).
+- $B = C(L_1', L_2) \ne \text{List}()$ si y solo si, por HI, existe
+  $m_1 \in L_1'$ y $m_2 \in L_2$ con $|m_1 - m_2| \le d$.
+
+Juntando los dos: $C(m :: L_1', L_2) \ne \text{List}()$ si y solo si existe
+$m_1 \in m :: L_1'$ y $m_2 \in L_2$ cercanos. ∎
+
+Por la corrección de `enRegion` (1.2), $L_1$ son exactamente las magnitudes de
+$a$ y $L_2$ las de $b$. Entonces la condición del filtro
+`(for {...} yield ...) != List()` es verdadera **si y solo si**
+$\text{cerca}(a, b)$.
+
+#### Lema 3: el `for` externo genera las parejas $(g_i, g_j)$ con $i < j$
+
+Para una lista de regiones $R$, sea
 
 ```math
-\text{Inv}((max, \text{List}())) \rightarrow max = f(\text{List}(a_1, \ldots, a_k))
+T(R) = \text{for } \{ a :: \text{resto} \leftarrow R.\text{tails.toList};\ b \leftarrow \text{resto};\ \text{if cerca}(a, b) \} \text{ yield } (a, b)
 ```
 
-**4.** En cada paso, la lista $l$ se reduce, acercándose a ser vacía. Después de
-$k$ iteraciones, $l = \text{List}()$.
+`tails` cumple:
 
-Esto implica que $P_f(L) == \text{maxAux}(L.\text{head}, L.\text{tail}) == f(L)$
+```math
+\text{List}().\text{tails} = \text{List}(\text{List}()) \qquad (g :: R').\text{tails} = (g :: R') :: R'.\text{tails}
+```
+
+El patrón `a :: resto` **no** encaja con la lista vacía, así que esa cola se
+salta (el `for` la filtra). Por eso:
+
+```math
+T(\text{List}()) \rightarrow \text{List}()
+```
+
+```math
+T(g :: R') \rightarrow \text{List}((g, b) \mid b \in R',\ \text{cerca}(g, b)) \mathbin{+\!\!+} T(R')
+```
+
+Y la especificación cumple la misma relación, separando las parejas cuyo
+primer elemento es $g_1 = g$ de las demás:
+
+```math
+f(g :: R') = \text{List}((g, b) \mid b \in R',\ \text{cerca}(g, b)) \mathbin{+\!\!+} f(R')
+```
+
+Se demuestra $T(R) == f(R)$ por inducción sobre la longitud de $R$:
+
+**Caso base:** $R = \text{List}()$. $T(\text{List}()) = \text{List}()$, y sin
+regiones no hay parejas: $f(\text{List}()) = \text{List}()$.
+
+**Caso de inducción:** $R = g :: R'$, con HI: $T(R') == f(R')$.
+
+```math
+T(g :: R') \rightarrow \text{List}((g, b) \mid b \in R',\ \text{cerca}(g, b)) \mathbin{+\!\!+} T(R')
+\overset{HI}{=} \text{List}((g, b) \mid b \in R',\ \text{cerca}(g, b)) \mathbin{+\!\!+} f(R') = f(g :: R')
+```
+
+∎
+
+#### Conclusión para `paresCercanos`
+
+Por el Lema 1, el `for` recorre $R$; por el Lema 2, su filtro es exactamente
+$\text{cerca}(a, b)$; y por el Lema 3, el resultado es la lista de parejas
+$(g_i, g_j)$ con $i < j$ que están cerca, en orden. Entonces:
+
+```math
+\forall r, d : P_f(r, d) == f(r, d)
+```
+
+**Terminación:** el registro es una lista finita, así que `regiones`, sus
+`tails` y cada `enRegion` son finitas; todos los generadores terminan.
+
+**Verificación con los datos de ejemplo** ($d = 0.6$):
+$R = \text{List}(\text{Valle}, \text{Santander}, \text{Choco})$.
+
+| Pareja | Magnitudes | ¿Hay una diferencia $\le 0.6$? | ¿Sale? |
+|---|---|---|---|
+| (Valle, Santander) | (4.2, 3.8, 5.3) vs (5.1, 4.7) | sí: 5.3 − 5.1 = 0.2 | sí |
+| (Valle, Choco) | (4.2, 3.8, 5.3) vs (6.0, 3.1) | no: la menor es 0.7 | no |
+| (Santander, Choco) | (5.1, 4.7) vs (6.0, 3.1) | no: la menor es 0.9 | no |
+
+Resultado: $\text{List}((\text{Valle}, \text{Santander}))$, que es lo que
+espera la prueba.
