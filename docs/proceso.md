@@ -1056,3 +1056,298 @@ Todas las pruebas del punto 2 en `RegistroSismicoTest.scala` pasan con
 | `porRegion` | el registro vacío da el mapa vacío | `Map()` |
 | `magnitudMaxima` | el registro vacío da el mapa vacío | `Map()` |
 | `conteoPorRegion` | no depende del orden del registro | igual con `registro.reverse` |
+
+---
+
+# Punto 4: réplicas perezosas
+
+## 1. `replicas`
+
+### Definición
+
+```Scala
+def replicas(magnitud: Double): LazyList[Double] = {
+  LazyList.iterate(magnitud)(_ * 0.8).map(redondear)
+}
+```
+
+* Entrada: la magnitud inicial del sismo.
+* Salida: una `LazyList[Double]` infinita, con sus valores redondeados a dos
+  decimales mediante el auxiliar `redondear` que ya tiene el taller.
+* Qué hace: empieza en la magnitud dada y multiplica sucesivamente por `0.8`.
+  El redondeo se aplica a la salida, sin cambiar el valor que alimenta el
+  siguiente cálculo.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `LazyList.iterate(magnitud)` | define una secuencia perezosa que empieza en `magnitud` |
+| `(_ * 0.8)` | obtiene cada valor crudo multiplicando el anterior por `0.8` |
+| `.map(redondear)` | redondea cada valor cuando se necesita; no redondea el estado de `iterate` |
+
+Se distinguen dos secuencias: $a_n$, los valores crudos, y $b_n$, los que
+se entregan al consultar la lista:
+
+```math
+a_0 = m, \qquad a_{n+1} = a_n \cdot 0.8, \qquad b_n = \text{redondear}(a_n)
+```
+
+Las operaciones se realizan con `Double`, por lo que los valores crudos
+pueden tener pequeñas diferencias de representación binaria. La fórmula
+describe los pasos del cálculo; no se sustituye el estado por $b_n$.
+
+### Paso a paso con `replicas(1.23).take(5).toList`
+
+| posición | valor crudo (en decimal) | valor entregado |
+|---|---|---|
+| 0 | 1.23 | 1.23 |
+| 1 | 1.23 × 0.8 = 0.984 | 0.98 |
+| 2 | 0.984 × 0.8 = 0.7872 | 0.79 |
+| 3 | 0.7872 × 0.8 = 0.62976 | 0.63 |
+| 4 | 0.62976 × 0.8 = 0.503808 | 0.50 |
+
+```Scala
+replicas(1.23).take(5).toList == List(1.23, 0.98, 0.79, 0.63, 0.50)
+```
+
+Si se multiplicara el valor ya redondeado, en la posición 2 se calcularía
+`0.98 * 0.8 = 0.784`, que redondea a `0.78`. Eso cambiaría la recurrencia.
+
+### Cuándo se calcula
+
+`replicas(5.0)` define la secuencia, sin recorrerla entera. `take(4)` construye
+un prefijo también perezoso y `toList` exige sus cuatro elementos:
+
+```Scala
+replicas(5.0).take(4).toList == List(5.0, 4.0, 3.2, 2.56)
+```
+
+La secuencia no termina al llegar a un valor que redondea a cero: puede seguir
+entregando ceros. Por eso no se convierte la secuencia infinita completa a
+`List`. `LazyList` memoriza lo que se evalúa; si se conserva la cabeza, también
+puede conservarse el prefijo calculado. La evaluación perezosa no significa
+que el consumo de memoria sea siempre constante.
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `replicas(1.234).take(2).toList` | `List(1.23, 0.99)` | el segundo valor procede de `1.234 * 0.8 = 0.9872` |
+| `replicas(0.0).take(257).toList` | 257 ceros | el cero también tiene un siguiente elemento |
+| `replicas(0.01).take(5).toList` | `List(0.01, 0.01, 0.01, 0.01, 0.0)` | los valores crudos son `0.01`, `0.008`, `0.0064`, `0.00512`, `0.004096` |
+
+### Diagrama del proceso
+
+```mermaid
+flowchart LR
+    M["magnitud inicial"] --> A["iterate: valor crudo"]
+    A --> B["multiplicar por 0.8 para el siguiente"]
+    B --> A
+    A --> R["map(redondear), al pedir el elemento"]
+    R --> P["take(n): prefijo perezoso"]
+    P --> L["toList: exige n elementos"]
+```
+
+## 2. `replicasSensibles`
+
+### Definición
+
+```Scala
+def replicasSensibles(magnitud: Double, minimo: Double): List[Double] = {
+  replicas(magnitud).takeWhile(_ > minimo).toList
+}
+```
+
+* Entrada: la magnitud inicial y el mínimo sensible.
+* Salida: una lista con el prefijo de réplicas redondeadas que superan el mínimo.
+* Qué hace: consulta la secuencia en orden y se detiene en el primer valor
+  que no cumple `> minimo`. Incluye el valor inicial solo si también cumple.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `replicas(magnitud)` | la secuencia infinita del apartado anterior |
+| `.takeWhile(_ > minimo)` | toma el prefijo que cumple la comparación estricta |
+| `.toList` | exige ese prefijo finito y lo entrega como lista |
+
+### Paso a paso con `replicasSensibles(5.0, 3.0)`
+
+| posición | valor redondeado | ¿supera 3.0? | acción |
+|---|---|---|---|
+| 0 | 5.0 | sí | incluir |
+| 1 | 4.0 | sí | incluir |
+| 2 | 3.2 | sí | incluir |
+| 3 | 2.56 | no | terminar, sin incluirlo |
+
+```Scala
+replicasSensibles(5.0, 3.0) == List(5.0, 4.0, 3.2)
+```
+
+Para saber dónde terminar, `takeWhile` necesita consultar también el primer
+valor rechazado, aquí `2.56`. No necesita recorrer los siguientes.
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `replicasSensibles(1.23, 0.788)` | `List(1.23, 0.98, 0.79)` | se compara `0.79`, no el valor crudo `0.7872` |
+| `replicasSensibles(4.5, 2.88)` | `List(4.5, 3.6)` | `2.88` iguala el mínimo y se rechaza |
+| `replicasSensibles(1.234, 1.23)` | `List()` | la primera salida redondeada ya iguala el mínimo |
+| `replicasSensibles(0.01, 0.0)` | cuatro valores `0.01` | el quinto redondea a cero y se rechaza |
+
+Con magnitudes sísmicas finitas no negativas y `minimo >= 0`, el prefijo
+termina: la decadencia acaba produciendo un valor que redondea a cero.
+Esta explicación no promete terminación con un mínimo negativo, porque los
+ceros seguirían superándolo. Tampoco establece un comportamiento físico para
+entradas no finitas; no se añade una política de validación al enunciado.
+
+### Diagrama del proceso
+
+```mermaid
+flowchart TD
+    R["replicas(magnitud)"] --> V["pedir el siguiente valor redondeado"]
+    V --> Q{"¿valor > minimo?"}
+    Q -->|sí| I["incluir en el prefijo"]
+    I --> V
+    Q -->|no| F["terminar sin incluir el valor"]
+    F --> L["toList: lista del prefijo"]
+```
+
+## Pruebas del punto 4
+
+Las ocho pruebas propias están en `RegistroSismicoPuntos45Test.scala`. Usan
+valores esperados explícitos, sin calcularlos con las funciones que se prueban.
+
+| prueba | qué comprueba |
+|---|---|
+| redondeo no acumulado | las primeras cinco salidas de `1.23` |
+| precisión inicial | `1.234` produce primero `1.23` y después `0.99` |
+| secuencia desde cero | se pueden exigir 257 ceros |
+| evaluación del prefijo | una transformación que fallaría en `0.63` no se ejecuta al exigir solo los primeros tres valores |
+| comparación redondeada | `0.79` supera el mínimo `0.788` |
+| igualdad posterior | el prefijo se detiene antes de `2.88` |
+| mínimo cero | cuatro salidas `0.01` antes del primer cero |
+| igualdad inicial redondeada | no incluye `1.23` con mínimo `1.23` |
+
+---
+
+# Punto 5: informe combinado
+
+## 1. `informe`
+
+### Definición
+
+```Scala
+def informe(r: Registro, minimo: Double): Map[String, Resumen] = {
+  val conteos = conteoPorRegion(r)
+  val maximas = magnitudMaxima(r)
+  maximas.map { case (region, maxima) =>
+    (region, Resumen(conteos(region), maxima, replicasSensibles(maxima, minimo).length))
+  }
+}
+```
+
+* Entrada: el registro `r` y el mínimo para considerar sensibles las réplicas.
+* Salida: un mapa con un `Resumen(sismos, maxima, replicas)` por región presente.
+* Qué hace: combina los conteos y máximas del punto 2 con las réplicas del
+  punto 4. Se calcula una secuencia por máxima regional, no por cada sismo.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `val conteos = conteoPorRegion(r)` | calcula una sola vez los conteos regionales |
+| `val maximas = magnitudMaxima(r)` | calcula una sola vez las máximas regionales |
+| `maximas.map` | transforma cada pareja del mapa de máximas |
+| `case (region, maxima)` | separa la llave regional de su magnitud máxima |
+| `conteos(region)` | consulta su número de sismos; la llave existe en ambos mapas |
+| `replicasSensibles(maxima, minimo).length` | cuenta el prefijo sensible de la máxima, incluida la inicial si supera el mínimo |
+| `(region, Resumen(...))` | conserva la región y le asocia los tres datos |
+
+`maxima` se guarda tal como aparece en el registro. El redondeo ocurre dentro
+de `replicas`, no al guardar la máxima en el resumen. No se introducen
+expresiones `for` en estos puntos: las transformaciones usan directamente
+`map`, `iterate` y `takeWhile`, así que no hay una nueva desazucaración de `for`.
+
+### Paso a paso con `informe(registro, 3.0)`
+
+1. `conteos` da `Map("Valle" -> 3, "Santander" -> 2, "Choco" -> 2)`.
+2. `maximas` da `Map("Valle" -> 5.3, "Santander" -> 5.1, "Choco" -> 6.0)`.
+3. Para cada máxima se consulta el prefijo sensible y se construye el resumen:
+
+| región | conteo | máxima | prefijo sensible con mínimo 3.0 | resumen |
+|---|---|---|---|---|
+| Valle | 3 | 5.3 | `List(5.3, 4.24, 3.39)` | `Resumen(3, 5.3, 3)` |
+| Santander | 2 | 5.1 | `List(5.1, 4.08, 3.26)` | `Resumen(2, 5.1, 3)` |
+| Choco | 2 | 6.0 | `List(6.0, 4.8, 3.84, 3.07)` | `Resumen(2, 6.0, 4)` |
+
+El orden de las filas permite explicar el cálculo; no exige que el mapa
+itere en ese orden.
+
+```Scala
+informe(registro, 3.0) == Map(
+  "Valle" -> Resumen(3, 5.3, 3),
+  "Santander" -> Resumen(2, 5.1, 3),
+  "Choco" -> Resumen(2, 6.0, 4))
+```
+
+### Otras entradas
+
+| entrada | resultado | por qué |
+|---|---|---|
+| registro vacío | `Map()` | el mapa de máximas está vacío y `map` no evalúa ningún resumen |
+| solo Cauca con magnitud `2.75`, mínimo `2.0` | `Map("Cauca" -> Resumen(1, 2.75, 2))` | el prefijo es `List(2.75, 2.2)`; `1.76` se rechaza |
+| solo Cauca con magnitud `1.234`, mínimo `1.23` | `Map("Cauca" -> Resumen(1, 1.234, 0))` | se guarda la máxima exacta, pero su primera salida redondeada no supera el mínimo |
+
+Una región cuya máxima redondeada no supera el mínimo sigue apareciendo, con cero
+réplicas sensibles. Reordenar el registro conserva los conteos y máximas y,
+por tanto, el informe completo. Duplicar un sismo aumenta su conteo; si no
+cambia la máxima, tampoco cambia el número de réplicas calculadas.
+
+### Diagrama del proceso
+
+```mermaid
+flowchart TD
+    R["registro"] --> C["conteoPorRegion(r)"]
+    R --> M["magnitudMaxima(r)"]
+    M --> P["map: (region, maxima)"]
+    P --> S["replicasSensibles(maxima, minimo).length"]
+    C --> F["Resumen(conteo, maxima, cantidad)"]
+    P --> F
+    S --> F
+    F --> I["region -> Resumen"]
+```
+
+## Pruebas del punto 5
+
+Las seis pruebas propias de `RegistroSismicoPuntos45Test.scala` usan registros
+distintos del ejemplo del material:
+
+| prueba | resultado esperado |
+|---|---|
+| un sismo de Cauca `2.75`, mínimo `2.0` | `Resumen(1, 2.75, 2)` |
+| regiones intercaladas, máxima de Cauca no inicial, mínimo `2.0` | Cauca: `Resumen(2, 4.0, 4)`; Huila: `Resumen(2, 3.0, 2)` |
+| duplicar exactamente un sismo de Meta `2.5`, mínimo `1.5` | pasa de `Resumen(1, 2.5, 3)` a `Resumen(2, 2.5, 3)` |
+| máximas inferior e igual al mínimo `2.0` | Meta y Cauca permanecen con cero réplicas |
+| permutación de tres sismos, mínimo `2.0` | Meta: `Resumen(2, 3.5, 3)`; Huila: `Resumen(1, 2.0, 0)` en ambos órdenes |
+| máxima con más de dos decimales | `Resumen(1, 1.234, 0)` con mínimo `1.23` |
+
+### Verificación local de los puntos 4 y 5
+
+La suite propia se verificó con el comando
+`./gradlew.bat test --tests "taller.RegistroSismicoPuntos45Test" --no-daemon`
+pasó las 14, con cero errores y advertencias de Scalastyle.
+
+Las 12 pruebas originales de estos puntos también pasaron en la ejecución
+completa de Gradle. El informe de resultados registra siete del punto 4 y cinco
+del punto 5, sin fallos. Junto con las 14 pruebas propias, son 26 pruebas
+aprobadas para los puntos 4 y 5.
+
+La ejecución completa con `./gradlew.bat test --no-daemon` dio 61 pruebas:
+53 aprobadas y ocho fallidas, todas por `scala.NotImplementedError` en
+`conteoSeguro`, `maximaDe` y `regionMasActiva` del punto 3. El build normal,
+`./gradlew.bat build --no-daemon`, generó el JAR y las distribuciones, pero
+terminó con error en `:app:test` por esos mismos ocho casos. La compilación
+y Scalastyle pasaron; el build completo queda pendiente de completar el punto 3.

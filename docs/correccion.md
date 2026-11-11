@@ -595,3 +595,187 @@ exactamente iguales.
 $(5.3, 3.8, 4.2)$ en vez de $(4.2, 3.8, 5.3)$, pero su conteo sigue siendo $3$
 y su máxima $5.3$. La prueba propia
 `conteoPorRegion(registro.reverse) == conteoPorRegion(registro)` lo comprueba.
+
+---
+
+## 4. Réplicas perezosas
+
+### 4.1 `replicas`
+
+```scala
+def replicas(magnitud: Double): LazyList[Double] = {
+  LazyList.iterate(magnitud)(_ * 0.8).map(redondear)
+}
+```
+
+**Especificación.** Sea $m$ la magnitud inicial. Definimos la secuencia cruda
+$a$ y la secuencia de salidas $b$:
+
+```math
+a_0 = m, \qquad a_{n+1} = \operatorname{fl}(a_n \cdot 0.8),
+\qquad b_n = \text{redondear}(a_n), \qquad n \ge 0
+```
+
+$\operatorname{fl}$ representa el resultado de la multiplicación en `Double`;
+`redondear` es exactamente el auxiliar dado. En aritmética real, la recurrencia
+ideal da $m(0.8)^n$, pero no se supone igualdad exacta con esa expresión en
+punto flotante. La salida debe tener el valor $b_n$ en cada posición $n$, sin
+un último elemento. La prueba se refiere a cualquier prefijo finito exigido,
+no a evaluar toda la secuencia infinita.
+
+**Lema: prefijos de `iterate`.** Si $u = \text{LazyList.iterate}(m)(h)$,
+entonces $u_0=m$ y $u_{n+1}=h(u_n)$ para cada posición que se consulta.
+
+- **Caso base:** al exigir el primer elemento, `iterate` entrega su semilla
+  $m$. Coincide con $a_0$.
+- **Paso inductivo:** supongamos que el elemento crudo en posición $n$ es
+  $a_n$. Al exigir el siguiente, `iterate` aplica $h(x)=x\cdot0.8$ en `Double`,
+  obteniendo $\operatorname{fl}(a_n\cdot0.8)=a_{n+1}$. Además deja definida
+  otra continuación, sin condición de parada.
+
+Por inducción, cada prefijo finito de la secuencia cruda es el especificado.
+
+**Demostración de la salida.** `map(redondear)` conserva las posiciones y
+transforma cada elemento crudo $a_n$ en $\text{redondear}(a_n)=b_n$.
+Para un prefijo de longitud cero no se exige ningún elemento. Si los primeros
+$k$ elementos exigidos son $b_0,\ldots,b_{k-1}$, al exigir uno más el lema
+entrega $a_k$ y `map` entrega $b_k$. Por inducción sobre la longitud del
+prefijo, toda observación finita coincide con la especificación. ∎
+
+**Por qué se redondea después.** La siguiente entrada de `iterate` es $a_n$,
+no $b_n$. Por ejemplo, desde `1.23`, el tercer valor crudo es `0.7872` y su
+salida es `0.79`; usar el anterior redondeado `0.98` produciría `0.78`.
+La prueba propia del redondeo no acumulado distingue ambos cálculos.
+
+**Orden y evaluación.** El orden es el de la recurrencia: no se pueden
+permutar las réplicas sin cambiar el resultado. `take(k)` define un prefijo
+perezoso y `toList` exige sus $k$ elementos, sin necesitar el siguiente.
+La prueba con una transformación que falla en el cuarto valor comprueba
+que exigir tres no exige ese cuarto. `LazyList` memoriza los elementos
+evaluados; mantener una referencia a su cabeza puede retener ese prefijo.
+Por tanto, esta demostración no afirma un consumo constante de memoria.
+
+### 4.2 `replicasSensibles`
+
+```scala
+def replicasSensibles(magnitud: Double, minimo: Double): List[Double] = {
+  replicas(magnitud).takeWhile(_ > minimo).toList
+}
+```
+
+**Especificación.** Con $b$ definido en 4.1 y mínimo $t$, sea $N$ la posición
+del primer valor rechazado, cuando existe:
+
+```math
+N = \min\{n \ge 0 \mid b_n \le t\}, \qquad
+f(m,t)=\text{List}(b_0,\ldots,b_{N-1})
+```
+
+En particular, si $N=0$, el resultado es `List()`. Los valores que entran
+cumplen $b_i>t$; el testigo de parada cumple $b_N\le t$ y no se incluye.
+
+**Lema: `takeWhile` conserva el prefijo que cumple.** Para el predicado
+$p(x)=(x>t)$, se demuestra por inducción sobre el número $N$ de elementos
+aceptados antes del primer rechazo:
+
+- **Caso base, $N=0$:** $p(b_0)$ es falso; `takeWhile` produce el prefijo vacío.
+  `toList` da `List()`, como pide $f$.
+- **Paso inductivo:** si $N=k+1$, $p(b_0)$ es verdadero. `takeWhile` conserva
+  $b_0$ y aplica la misma regla a la cola. En ella hay $k$ valores aceptados
+  antes del rechazo original $b_{k+1}$. Por HI entrega
+  $\text{List}(b_1,\ldots,b_k)$; al anteponer $b_0$ queda exactamente
+  $\text{List}(b_0,\ldots,b_k)$.
+
+Por 4.1 la secuencia consultada es $b$, y por el lema su prefijo cumple la
+especificación. `toList` materializa ese prefijo sin alterar valores ni orden.
+La comparación se aplica a $b_n$, no a $a_n$: `0.79 > 0.788` es verdadero
+aunque el valor crudo correspondiente sea `0.7872`. ∎
+
+**Terminación y dominio.** Para magnitudes sísmicas finitas no negativas y
+$t\ge0$, existe el testigo $N$. En aritmética real, la decadencia geométrica
+alcanza un valor menor que `0.005`, que redondea a cero. En `Double`, mientras
+el estado sea al menos `0.005`, la multiplicación por el factor representado
+`0.8`, incluido su error de redondeo, lo reduce por un factor menor que `0.81`.
+Ese intervalo está lejos del rango subnormal, así que la disminución alcanza
+en un número finito de pasos un valor menor que `0.005`; desde allí las salidas
+son cero. No es necesario que el estado crudo llegue a cero exacto. Por eso
+`takeWhile` encuentra un rechazo incluso cuando $t=0$ y `toList` termina.
+
+Para conocer ese punto, se exige el valor rechazado además de los $N$
+aceptados. Si $t<0$, las salidas cero siguen cumpliendo el predicado y no se
+garantiza una lista finita. No se extiende esta demostración a entradas
+no finitas ni se añade validación que no pide el taller.
+
+---
+
+## 5. Informe combinado
+
+### 5.1 `informe`
+
+```scala
+def informe(r: Registro, minimo: Double): Map[String, Resumen] = {
+  val conteos = conteoPorRegion(r)
+  val maximas = magnitudMaxima(r)
+  maximas.map { case (region, maxima) =>
+    (region, Resumen(conteos(region), maxima, replicasSensibles(maxima, minimo).length))
+  }
+}
+```
+
+**Especificación.** Para cada región $g$ del registro finito $r$, definimos
+$c_g$ como su cantidad de sismos, $M_g$ como su magnitud máxima y $N_g$ como
+la longitud del prefijo sensible de esa máxima con mínimo $t$. En el dominio
+de terminación de 4.2:
+
+```math
+\text{llaves}(f(r,t))=\text{regs}(r), \qquad
+\forall g\in\text{regs}(r):
+f(r,t)(g)=\text{Resumen}(c_g,M_g,N_g)
+```
+
+**Lema: las consultas del conteo están definidas.** Por 2.2 y 2.3,
+`conteos` y `maximas` tienen exactamente las llaves $\text{regs}(r)$.
+Cada pareja visitada por `maximas.map` tiene, por tanto, su llave en
+`conteos`. No se necesita un valor por defecto ni una consulta del punto 3.
+
+**Demostración por composición.** Por los resultados del punto 2,
+`conteos(g)` vale $c_g$ y `maximas(g)` vale $M_g$. Por 4.2,
+`replicasSensibles(M_g, t)` es exactamente el prefijo sensible; su longitud
+vale $N_g$. Así, la transformación de cada pareja produce
+$(g,\text{Resumen}(c_g,M_g,N_g))$.
+
+Aplicamos el lema de conservación de llaves del punto 2. La transformación
+depende también de la llave para consultar su conteo, pero la mantiene:
+
+- **Caso base:** si el mapa de máximas está vacío, `map` produce `Map()`.
+  En particular, para el registro vacío no se consulta ningún conteo ni se
+  calcula ninguna réplica.
+- **Paso inductivo:** supongamos transformadas correctamente $k$ parejas.
+  La siguiente pareja $(g,M_g)$ tiene una llave distinta de las anteriores.
+  Por el lema de consultas y 4.2, se agrega exactamente
+  $(g,\text{Resumen}(c_g,M_g,N_g))$, sin reemplazar las otras parejas.
+
+Por inducción sobre las parejas del mapa finito, se conservan todas y solo
+las regiones originales con su resumen correcto. ∎
+
+**Consecuencias.** Una región no se elimina si $N_g=0$. La máxima $M_g$ se
+guarda sin redondear: solo sus réplicas pasan por `redondear`. Si se duplica
+un sismo sin cambiar la máxima, aumenta $c_g$ pero no $M_g$ ni $N_g$.
+
+### 5.2 Orden del registro y del mapa
+
+Sea $r_2$ una permutación de $r$ que conserva las repeticiones. Por 2.4,
+conserva las regiones, $c_g$ y $M_g$. Como el mismo $M_g$ con el mismo $t$
+define la misma recurrencia y el mismo prefijo sensible, también conserva
+$N_g$. Entonces:
+
+```math
+\text{informe}(r_2,t)==\text{informe}(r,t)
+```
+
+La igualdad de mapas compara llaves y valores, no el orden de iteración.
+Cada pareja regional se transforma independientemente y conserva su llave;
+por ello visitarlas en otro orden produce el mismo mapa. Esto no permite
+reordenar las réplicas: dentro de cada prefijo se mantiene el orden de 4.1.
+La prueba propia con dos órdenes del registro compara ambos informes con
+el mismo mapa esperado explícito.
