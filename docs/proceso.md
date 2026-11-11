@@ -637,3 +637,422 @@ Todas las pruebas del punto 1 en `RegistroSismicoTest.scala` pasan con
 | `paresCercanos` | con 0.1 no hay ninguna |
 | `paresCercanos` | cada pareja sale una sola vez |
 | `paresCercanos` | nunca empareja una región consigo misma |
+
+Las pruebas propias
+| función | prueba | resultado esperado |
+|---|---|---|
+| `fuertes` | con umbral 4.5 salen cuatro, en orden y con repetidos | `List("Santander", "Choco", "Santander", "Valle")` |
+| `fuertes` | con umbral 5.3 el Valle no sale porque es estricto | `List("Choco")` |
+| `enRegion` | las magnitudes del Choco, en orden | `List(6.0, 3.1)` |
+| `enRegion` | distingue mayúsculas, `"valle"` no es `"Valle"` | `List()` |
+| `paresCercanos` | con 0.8 salen Valle-Santander y Valle-Choco | `List(("Valle", "Santander"), ("Valle", "Choco"))` |
+
+---
+---
+
+# Informe de proceso — Punto 2: agrupar con mapas
+
+En el punto 2 se resuelven tres funciones: `porRegion`, `conteoPorRegion` y
+`magnitudMaxima`. La primera agrupa los sismos por región en un `Map`, y las
+otras dos parten de ese `Map` y transforman cada grupo en un número.
+
+## `map` no es lo mismo que `Map`
+
+| se escribe | qué es | ejemplo |
+|---|---|---|
+| `Map` (mayúscula) | un tipo de dato: a cada llave le corresponde un valor | `Map("Valle" -> 3)` |
+| `.map(...)` (minúscula) | una operación: transforma cada elemento | `registro.map(_.region)` |
+
+* `.map` sobre una `List` devuelve una `List`.
+* `.map` sobre un `Map`, si la función devuelve parejas `(llave, valor)`,
+  devuelve un `Map`.
+* La operación que convierte una lista en un `Map` es `groupBy`.
+
+El camino de todo el punto es:
+
+```mermaid
+flowchart LR
+    A["registro: List[Sismo]"] -->|"groupBy(_.region)"| B["porRegion: Map[String, List[Sismo]]"]
+    B -->|"map: (región, lista.length)"| C["conteoPorRegion: Map[String, Int]"]
+    B -->|"map: (región, lista.map(_.magnitud).max)"| D["magnitudMaxima: Map[String, Double]"]
+```
+
+En las trazas se abrevia cada sismo con su región y su magnitud: por ejemplo,
+`Valle 4.2` es `Sismo(Fecha(2025, 3), "Valle", 4.2, 30)`.
+
+---
+
+## 1. `porRegion`
+
+### Definición
+
+```Scala
+def porRegion(r: Registro): Map[String, List[Sismo]] = {
+  r.groupBy(_.region)
+}
+```
+
+* Entrada: el registro `r`.
+* Salida: un `Map` que a cada región le asocia la lista de sus sismos.
+* Qué hace: agrupa los sismos según su región.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `r.groupBy(...)` | recorre los sismos y los reparte en grupos |
+| `_.region` | es la función `sismo => sismo.region`: dice que la llave de cada sismo es su región |
+| resultado | un `Map` cuyas llaves son las regiones y cuyos valores son las listas de sismos completos de cada región |
+
+La firma de `groupBy` es:
+
+```Scala
+def groupBy[K](f: A => K): Map[K, List[A]]
+```
+
+Aquí `A = Sismo` y `f = _.region`, que devuelve un `String`, así que
+`K = String` y el resultado es `Map[String, List[Sismo]]`, el tipo que pide la
+función.
+
+### Paso a paso con `porRegion(registro)`
+
+`groupBy` recorre el registro en orden. Por cada sismo calcula su región; si
+la región ya es una llave, agrega el sismo al final de su grupo, y si no,
+crea un grupo nuevo con ese sismo. El mapa empieza vacío: `Map()`.
+
+* Vuelta 1. `sismo = Sismo(Fecha(2025, 3), "Valle", 4.2, 30)`
+
+* La llave es `sismo.region`, que es `"Valle"`.
+* ¿`"Valle"` ya es llave del mapa? No, el mapa está vacío.
+* Se crea el grupo `"Valle" -> List(Valle 4.2)`.
+* Mapa parcial: `Map("Valle" -> List(Valle 4.2))`
+
+*Vuelta 2.* `sismo = Sismo(Fecha(2025, 3), "Santander", 5.1, 150)`
+
+* La llave es `"Santander"`.
+* ¿`"Santander"` ya es llave? No.
+* Se crea el grupo `"Santander" -> List(Santander 5.1)`.
+* Mapa parcial:
+  `Map("Valle" -> List(Valle 4.2), "Santander" -> List(Santander 5.1))`
+
+*Vuelta 3.* `sismo = Sismo(Fecha(2025, 4), "Valle", 3.8, 25)`
+
+* La llave es `"Valle"`.
+* ¿`"Valle"` ya es llave? Sí.
+* Se agrega el sismo al final del grupo del Valle:
+  `List(Valle 4.2)` pasa a ser `List(Valle 4.2, Valle 3.8)`.
+* Mapa parcial:
+  `Map("Valle" -> List(Valle 4.2, Valle 3.8), "Santander" -> List(Santander 5.1))`
+
+*Vuelta 4.*`sismo = Sismo(Fecha(2025, 4), "Choco", 6.0, 40)`
+
+* La llave es `"Choco"`.
+* ¿`"Choco"` ya es llave? No.
+* Se crea el grupo `"Choco" -> List(Choco 6.0)`.
+* Mapa parcial:
+  `Map("Valle" -> List(Valle 4.2, Valle 3.8), "Santander" -> List(Santander 5.1), "Choco" -> List(Choco 6.0))`
+
+*Vuelta 5.* `sismo = Sismo(Fecha(2025, 5), "Santander", 4.7, 160)`
+
+* La llave es `"Santander"`.
+* ¿`"Santander"` ya es llave? Sí.
+* Se agrega al final: `List(Santander 5.1)` pasa a ser
+  `List(Santander 5.1, Santander 4.7)`.
+* Mapa parcial:
+  `Map("Valle" -> List(Valle 4.2, Valle 3.8), "Santander" -> List(Santander 5.1, Santander 4.7), "Choco" -> List(Choco 6.0))`
+
+*Vuelta 6.* `sismo = Sismo(Fecha(2025, 5), "Valle", 5.3, 35)`
+
+* La llave es `"Valle"`.
+* ¿`"Valle"` ya es llave? Sí.
+* Se agrega al final: `List(Valle 4.2, Valle 3.8)` pasa a ser
+  `List(Valle 4.2, Valle 3.8, Valle 5.3)`.
+* Mapa parcial:
+  `Map("Valle" -> List(Valle 4.2, Valle 3.8, Valle 5.3), "Santander" -> List(Santander 5.1, Santander 4.7), "Choco" -> List(Choco 6.0))`
+
+*Vuelta 7.* `sismo = Sismo(Fecha(2025, 6), "Choco", 3.1, 20)`
+
+* La llave es `"Choco"`.
+* ¿`"Choco"` ya es llave? Sí.
+* Se agrega al final: `List(Choco 6.0)` pasa a ser
+  `List(Choco 6.0, Choco 3.1)`.
+* Mapa parcial:
+  `Map("Valle" -> List(Valle 4.2, Valle 3.8, Valle 5.3), "Santander" -> List(Santander 5.1, Santander 4.7), "Choco" -> List(Choco 6.0, Choco 3.1))`
+
+Se acabaron los sismos, así que `groupBy` termina.
+
+### Resumen de las vueltas
+
+| vuelta | sismo | llave (`_.region`) | ¿la llave ya existía? | mapa parcial |
+|---|---|---|---|---|
+| 1 | Valle 4.2 | `"Valle"` | no, se crea | `Valle -> (4.2)` |
+| 2 | Santander 5.1 | `"Santander"` | no, se crea | `Valle -> (4.2)`, `Santander -> (5.1)` |
+| 3 | Valle 3.8 | `"Valle"` | sí, se agrega | `Valle -> (4.2, 3.8)`, `Santander -> (5.1)` |
+| 4 | Choco 6.0 | `"Choco"` | no, se crea | `Valle -> (4.2, 3.8)`, `Santander -> (5.1)`, `Choco -> (6.0)` |
+| 5 | Santander 4.7 | `"Santander"` | sí, se agrega | `Valle -> (4.2, 3.8)`, `Santander -> (5.1, 4.7)`, `Choco -> (6.0)` |
+| 6 | Valle 5.3 | `"Valle"` | sí, se agrega | `Valle -> (4.2, 3.8, 5.3)`, `Santander -> (5.1, 4.7)`, `Choco -> (6.0)` |
+| 7 | Choco 3.1 | `"Choco"` | sí, se agrega | `Valle -> (4.2, 3.8, 5.3)`, `Santander -> (5.1, 4.7)`, `Choco -> (6.0, 3.1)` |
+
+Resultado:
+
+```Scala
+porRegion(registro) == Map(
+  "Valle"     -> List(Valle 4.2, Valle 3.8, Valle 5.3),
+  "Santander" -> List(Santander 5.1, Santander 4.7),
+  "Choco"     -> List(Choco 6.0, Choco 3.1))
+```
+
+Hay tres llaves y $3 + 2 + 2 = 7$ sismos en total
+
+* Dentro de cada grupo los sismos quedan en el orden del registro.
+* Ningún grupo queda vacío: una llave solo se crea cuando aparece un sismo
+  con esa región.
+* Una región que no está en el registro (por ejemplo `"Amazonas"`) nunca se
+  vuelve llave.
+* El `Map` no tiene un orden fijo entre sus llaves; dos mapas son iguales si
+  tienen las mismas parejas, sin importar el orden en que se impriman.
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `porRegion(List())` | `Map()` | no hay sismos, así que no se crea ninguna llave |
+
+---
+
+## 2. `conteoPorRegion`
+
+### Definición
+
+```Scala
+def conteoPorRegion(r: Registro): Map[String, Int] = {
+  val m = porRegion(r)
+  m.map { case (key, list) => (key, list.length) }
+}
+```
+
+* Entrada: el registro `r`.
+* Salida: un `Map` que a cada región le asocia cuántos sismos tiene.
+* Qué hace: agrupa con `porRegion` y cambia cada lista por su longitud.
+
+### Línea por línea
+
+| línea | significado |
+|---|---|
+| `val m = porRegion(r)` | se guarda el mapa de grupos con el nombre `m` (reutiliza la función anterior) |
+| `m.map { ... }` | recorre cada pareja `(llave, valor)` del mapa |
+| `case (key, list)` | separa la pareja: `key` es la región y `list` la lista de sus sismos |
+| `=> (key, list.length)` | devuelve una pareja nueva con la misma región y la cantidad de sismos |
+
+Como la función devuelve parejas, el resultado de `m.map` sigue siendo un
+`Map`.
+
+### Paso a paso con `conteoPorRegion(registro)`
+
+Primero se calcula `val m = porRegion(registro)` (la traza de la sección
+anterior):
+
+```Scala
+m == Map(
+  "Valle"     -> List(Valle 4.2, Valle 3.8, Valle 5.3),
+  "Santander" -> List(Santander 5.1, Santander 4.7),
+  "Choco"     -> List(Choco 6.0, Choco 3.1))
+```
+
+Luego `m.map` visita las parejas de `m` una por una. El mapa resultado
+empieza vacío: `Map()`.
+
+*Vuelta 1.* pareja `"Valle" -> List(Valle 4.2, Valle 3.8, Valle 5.3)`
+
+* `case (key, list)` separa la pareja: `key = "Valle"` y
+  `list = List(Valle 4.2, Valle 3.8, Valle 5.3)`.
+* `list.length` cuenta los elementos de la lista: da `3`.
+* Se devuelve la pareja `("Valle", 3)`, es decir `"Valle" -> 3`.
+* Resultado parcial: `Map("Valle" -> 3)`
+
+*Vuelta 2.* pareja `"Santander" -> List(Santander 5.1, Santander 4.7)`
+
+* `key = "Santander"` y `list = List(Santander 5.1, Santander 4.7)`.
+* `list.length` da `2`.
+* Se devuelve `"Santander" -> 2`.
+* Resultado parcial: `Map("Valle" -> 3, "Santander" -> 2)`
+
+*Vuelta 3.* pareja `"Choco" -> List(Choco 6.0, Choco 3.1)`
+
+* `key = "Choco"` y `list = List(Choco 6.0, Choco 3.1)`.
+* `list.length` da `2`.
+* Se devuelve `"Choco" -> 2`.
+* Resultado parcial: `Map("Valle" -> 3, "Santander" -> 2, "Choco" -> 2)`
+
+Se acabaron las parejas, así que `map` termina.
+
+### Resumen de las vueltas
+
+| pareja de `m` | `key` | `list` | `list.length` | pareja nueva |
+|---|---|---|---|---|
+| 1 | `"Valle"` | (4.2, 3.8, 5.3) | 3 | `"Valle" -> 3` |
+| 2 | `"Santander"` | (5.1, 4.7) | 2 | `"Santander" -> 2` |
+| 3 | `"Choco"` | (6.0, 3.1) | 2 | `"Choco" -> 2` |
+
+```Scala
+conteoPorRegion(registro) == Map("Valle" -> 3, "Santander" -> 2, "Choco" -> 2)
+```
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `conteoPorRegion(List())` | `Map()` | `porRegion(List())` es `Map()`, y `map` sobre un mapa vacío no visita ninguna pareja |
+| `conteoPorRegion(registro.reverse)` | el mismo mapa | al invertir el registro cambia el orden dentro de cada grupo, pero no cuántos sismos tiene |
+
+---
+
+## 3. `magnitudMaxima`
+
+### Definición
+
+```Scala
+def magnitudMaxima(r: Registro): Map[String, Double] = {
+  val m = porRegion(r)
+  m.map { case (k, l) => (k, l.map(_.magnitud).max) }
+}
+```
+
+* Entrada: el registro `r`.
+* Salida: un `Map` que a cada región le asocia su magnitud más grande.
+* Qué hace: agrupa con `porRegion` y cambia cada lista de sismos por la
+  mayor de sus magnitudes.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `val m = porRegion(r)` | el mapa de grupos |
+| `case (k, l)` | `k` es la región y `l` la lista de sus sismos |
+| `l.map(_.magnitud)` | aquí `.map` actúa sobre una lista: cambia cada sismo por su magnitud y da una `List[Double]` |
+| `.max` | el número más grande de esa lista |
+| `(k, ...)` | la pareja nueva: la misma región con su máxima |
+
+### Paso a paso con `magnitudMaxima(registro)`
+
+Primero se calcula `val m = porRegion(registro)`, el mismo mapa de la sección
+de `conteoPorRegion`. Luego `m.map` visita las parejas una por una. Dentro de
+cada vuelta hay dos pasos más: `l.map(_.magnitud)`, que recorre los sismos del
+grupo, y `.max`, que recorre las magnitudes quedándose con la mayor. El mapa
+resultado empieza vacío: `Map()`.
+
+* Vuelta 1. pareja `"Valle" -> List(Valle 4.2, Valle 3.8, Valle 5.3)`
+
+* `case (k, l)` separa la pareja: `k = "Valle"` y
+  `l = List(Valle 4.2, Valle 3.8, Valle 5.3)`.
+* `l.map(_.magnitud)` cambia cada sismo por su magnitud:
+  * `Valle 4.2` → `4.2`
+  * `Valle 3.8` → `3.8`
+  * `Valle 5.3` → `5.3`
+  * da `List(4.2, 3.8, 5.3)`.
+* `.max` recorre esa lista guardando el mayor visto hasta el momento:
+  * empieza con `4.2`
+  * compara con `3.8`: `3.8 > 4.2` da `false`, sigue `4.2`
+  * compara con `5.3`: `5.3 > 4.2` da `true`, ahora es `5.3`
+  * da `5.3`.
+* Se devuelve `"Valle" -> 5.3`.
+* Resultado parcial: `Map("Valle" -> 5.3)`
+
+* Vuelta 2.* pareja `"Santander" -> List(Santander 5.1, Santander 4.7)`
+
+* `k = "Santander"` y `l = List(Santander 5.1, Santander 4.7)`.
+* `l.map(_.magnitud)`:
+  * `Santander 5.1` → `5.1`
+  * `Santander 4.7` → `4.7`
+  * da `List(5.1, 4.7)`.
+* `.max`:
+  * empieza con `5.1`
+  * compara con `4.7`: `4.7 > 5.1` da `false`, sigue `5.1`
+  * da `5.1`.
+* Se devuelve `"Santander" -> 5.1`.
+* Resultado parcial: `Map("Valle" -> 5.3, "Santander" -> 5.1)`
+
+*Vuelta 3.* pareja `"Choco" -> List(Choco 6.0, Choco 3.1)`
+
+* `k = "Choco"` y `l = List(Choco 6.0, Choco 3.1)`.
+* `l.map(_.magnitud)`:
+  * `Choco 6.0` → `6.0`
+  * `Choco 3.1` → `3.1`
+  * da `List(6.0, 3.1)`.
+* `.max`:
+  * empieza con `6.0`
+  * compara con `3.1`: `3.1 > 6.0` da `false`, sigue `6.0`
+  * da `6.0`.
+* Se devuelve `"Choco" -> 6.0`.
+* Resultado parcial:
+  `Map("Valle" -> 5.3, "Santander" -> 5.1, "Choco" -> 6.0)`
+
+Se acabaron las parejas, así que `map` termina.
+
+### Resumen de las vueltas
+
+| pareja de `m` | `k` | `l.map(_.magnitud)` | `.max` | pareja nueva |
+|---|---|---|---|---|
+| 1 | `"Valle"` | `List(4.2, 3.8, 5.3)` | 5.3 | `"Valle" -> 5.3` |
+| 2 | `"Santander"` | `List(5.1, 4.7)` | 5.1 | `"Santander" -> 5.1` |
+| 3 | `"Choco"` | `List(6.0, 3.1)` | 6.0 | `"Choco" -> 6.0` |
+
+```Scala
+magnitudMaxima(registro) == Map("Valle" -> 5.3, "Santander" -> 5.1, "Choco" -> 6.0)
+```
+
+`max` falla con una lista vacía, pero aquí nunca ocurre: como se vio en
+`porRegion`, ningún grupo queda vacío.
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `magnitudMaxima(List())` | `Map()` | no hay grupos, así que `max` no se llama nunca |
+| `magnitudMaxima(registro).contains("Amazonas")` | `false` | `"Amazonas"` no es llave de `porRegion(registro)` |
+
+### Diagrama del proceso
+
+```mermaid
+flowchart TD
+    R["registro: 7 sismos"] --> G["groupBy(_.region)"]
+    G --> V["Valle -> (4.2, 3.8, 5.3)"]
+    G --> S["Santander -> (5.1, 4.7)"]
+    G --> C["Choco -> (6.0, 3.1)"]
+    V --> VC["length = 3"]
+    V --> VM["max = 5.3"]
+    S --> SC["length = 2"]
+    S --> SM["max = 5.1"]
+    C --> CC["length = 2"]
+    C --> CM["max = 6.0"]
+    VC --> CONT["conteoPorRegion"]
+    SC --> CONT
+    CC --> CONT
+    VM --> MAX["magnitudMaxima"]
+    SM --> MAX
+    CM --> MAX
+```
+
+---
+
+## Pruebas del punto 2
+
+Todas las pruebas del punto 2 en `RegistroSismicoTest.scala` pasan con
+`./gradlew test`:
+
+| función | prueba |
+|---|---|
+| `porRegion` | agrupa los siete sismos en tres regiones |
+| `conteoPorRegion` | tres, dos y dos |
+| `magnitudMaxima` | la mayor de cada región |
+| `conteoPorRegion` | el registro vacío da el mapa vacío |
+| `magnitudMaxima` | las regiones ausentes no aparecen |
+
+
+| función | prueba | resultado esperado |
+|---|---|---|
+| `porRegion` | el grupo del Valle conserva el orden del registro | magnitudes `List(4.2, 3.8, 5.3)` |
+| `porRegion` | todos los sismos del grupo Choco son del Choco | `true` |
+| `porRegion` | el registro vacío da el mapa vacío | `Map()` |
+| `magnitudMaxima` | el registro vacío da el mapa vacío | `Map()` |
+| `conteoPorRegion` | no depende del orden del registro | igual con `registro.reverse` |
