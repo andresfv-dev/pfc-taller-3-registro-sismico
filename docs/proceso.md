@@ -1059,6 +1059,311 @@ Todas las pruebas del punto 2 en `RegistroSismicoTest.scala` pasan con
 
 ---
 
+# Informe de proceso — Punto 3: consultas seguras
+
+En el punto 2 los mapas se consultan con `m(llave)`. Eso funciona si la llave
+existe, pero si no existe lanza una excepción:
+
+```Scala
+conteoPorRegion(registro)("Amazonas")   // NoSuchElementException
+```
+
+En el punto 3 las tres funciones consultan los mapas del punto 2 sin que esto
+pase. Cuando no hay respuesta se devuelve el valor vacío: `0` en un conteo y
+`None` en un `Option`.
+
+## `Option` en pocas palabras
+
+Un `Option[A]` es una caja que puede estar vacía o tener un valor:
+
+| valor | significado |
+|---|---|
+| `Some(x)` | sí hay respuesta y es `x` |
+| `None` | no hay respuesta |
+
+Así la función siempre devuelve algo y el que la llama decide qué hacer si
+viene `None`.
+
+---
+
+## 1. `conteoSeguro`
+
+### Definición
+
+```Scala
+def conteoSeguro(r: Registro): Map[String, Int] = {
+  conteoPorRegion(r).withDefaultValue(0)
+}
+```
+
+* Entrada: el registro `r`.
+* Salida: un `Map` con el conteo de cada región, que responde `0` si se le
+  pregunta por una región que no está.
+* Qué hace: toma el mapa de `conteoPorRegion` y le pone `0` como valor por
+  defecto.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `conteoPorRegion(r)` | el mapa del punto 2, región -> cantidad de sismos |
+| `.withDefaultValue(0)` | devuelve el mismo mapa pero cuando la llave no existe responde `0` en vez de lanzar excepción |
+
+`withDefaultValue` no agrega llaves nuevas al mapa. Solo cambia lo que pasa
+cuando se consulta con `m(llave)` y la llave no está.
+
+### Paso a paso con `conteoSeguro(registro)`
+
+Primero se calcula `conteoPorRegion(registro)` (ver punto 2):
+
+```Scala
+Map("Valle" -> 3, "Santander" -> 2, "Choco" -> 2)
+```
+
+Luego `withDefaultValue(0)` le pone el valor por defecto. Al mapa le llamamos
+`m`. Ahora se hacen consultas:
+
+*Consulta 1.* `m("Valle")`
+
+* `"Valle"` es llave de `m`.
+* Se devuelve su valor: `3`.
+
+*Consulta 2.* `m("Amazonas")`
+
+* `"Amazonas"` no es llave de `m`.
+* Sin el valor por defecto aquí saldría `NoSuchElementException`.
+* Como el mapa tiene valor por defecto, se devuelve `0`.
+
+*Consulta 3.* `m("valle")`
+
+* `"valle"` en minúscula no es lo mismo que `"Valle"`, las llaves distinguen
+  mayúsculas.
+* No es llave, se devuelve `0`.
+
+| consulta | ¿es llave? | resultado |
+|---|---|---|
+| `m("Valle")` | sí | 3 |
+| `m("Santander")` | sí | 2 |
+| `m("Amazonas")` | no | 0 |
+| `m("valle")` | no | 0 |
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `conteoSeguro(List())("Valle")` | `0` | `conteoPorRegion(List())` es `Map()`, ninguna llave existe y todo responde el valor por defecto |
+| `conteoSeguro(registro).contains("Amazonas")` | `false` | el valor por defecto no agrega la llave al mapa |
+| `conteoSeguro(registro).size` | `3` | siguen siendo las tres regiones del registro |
+
+---
+
+## 2. `maximaDe`
+
+### Definición
+
+```Scala
+def maximaDe(r: Registro, region: String): Option[Double] = {
+  magnitudMaxima(r).get(region)
+}
+```
+
+* Entrada: el registro `r` y el nombre de una región.
+* Salida: `Some(máxima)` si la región tiene sismos, `None` si no tiene.
+* Qué hace: busca la región en el mapa de `magnitudMaxima` con `get`.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `magnitudMaxima(r)` | el mapa del punto 2, región -> magnitud máxima |
+| `.get(region)` | busca la llave; si está devuelve `Some(valor)`, si no está devuelve `None` |
+
+La diferencia con `m(region)` es que `get` nunca lanza excepción, siempre
+devuelve un `Option`.
+
+### Paso a paso con `maximaDe(registro, "Choco")`
+
+* Se calcula `magnitudMaxima(registro)`:
+  `Map("Valle" -> 5.3, "Santander" -> 5.1, "Choco" -> 6.0)`
+* `.get("Choco")`: `"Choco"` es llave y su valor es `6.0`.
+* Resultado: `Some(6.0)`
+
+### Paso a paso con `maximaDe(registro, "Amazonas")`
+
+* Se calcula el mismo mapa de antes.
+* `.get("Amazonas")`: `"Amazonas"` no es llave.
+* Resultado: `None`
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `maximaDe(registro, "Valle")` | `Some(5.3)` | la máxima del Valle es el tercer sismo, no el primero (4.2) |
+| `maximaDe(List(), "Choco")` | `None` | `magnitudMaxima(List())` es `Map()`, no hay llaves |
+| `maximaDe(registro, "choco")` | `None` | en minúscula no es la misma llave |
+
+---
+
+## 3. `regionMasActiva`
+
+### Definición
+
+```Scala
+def regionMasActiva(r: Registro): Option[String] = {
+  val conteos = conteoPorRegion(r).toList
+  val ordenados = conteos.sortBy { case (region, n) => (-n, region) }
+  ordenados.headOption.map(_._1)
+}
+```
+
+* Entrada: el registro `r`.
+* Salida: `Some(region)` con la región que tiene más sismos, o `None` si el
+  registro está vacío.
+* Qué hace: pasa los conteos a lista, los ordena de más sismos a menos (y en
+  empate por nombre) y se queda con el primero.
+
+### Línea por línea
+
+| pieza | significado |
+|---|---|
+| `conteoPorRegion(r).toList` | el mapa de conteos pasado a una lista de parejas `(region, n)` |
+| `sortBy { case (region, n) => (-n, region) }` | ordena la lista usando la pareja `(-n, region)` como criterio |
+| `ordenados.headOption` | el primer elemento como `Option`: `Some(pareja)` o `None` si la lista es vacía |
+| `.map(_._1)` | si hay pareja, se queda con la primera parte, que es la región |
+
+### Por qué `(-n, region)`
+
+`sortBy` ordena de menor a mayor. Las parejas se comparan primero por el
+primer componente y si son iguales por el segundo.
+
+* Si se ordenara por `n` quedaría primero la región con **menos** sismos. Con
+  `-n` se invierte: 3 sismos da `-3`, que es menor que `-2`, entonces queda
+  primero.
+* Si dos regiones tienen el mismo `n`, se compara `region`, que es un
+  `String`, y los `String` se ordenan alfabéticamente. Así en empate gana la
+  primera en orden alfabético.
+
+Se usa `headOption` y no `head` porque `head` sobre una lista vacía lanza
+excepción.
+
+### Paso a paso con `regionMasActiva(registro)`
+
+*Paso 1.* `conteoPorRegion(registro).toList`
+
+```Scala
+conteos == List(("Valle", 3), ("Santander", 2), ("Choco", 2))
+```
+
+El orden en que salen las parejas de un `Map` no está garantizado, pero no
+importa porque en el siguiente paso se ordena.
+
+*Paso 2.* se calcula el criterio de cada pareja
+
+| pareja | `-n` | `region` | criterio |
+|---|---|---|---|
+| `("Valle", 3)` | -3 | `"Valle"` | `(-3, "Valle")` |
+| `("Santander", 2)` | -2 | `"Santander"` | `(-2, "Santander")` |
+| `("Choco", 2)` | -2 | `"Choco"` | `(-2, "Choco")` |
+
+*Paso 3.* `sortBy` ordena por el criterio
+
+* `(-3, "Valle")` es el menor porque `-3 < -2`.
+* Entre `(-2, "Santander")` y `(-2, "Choco")` el primer componente empata, se
+  compara el nombre: `"Choco" < "Santander"` porque `C` va antes que `S`.
+
+```Scala
+ordenados == List(("Valle", 3), ("Choco", 2), ("Santander", 2))
+```
+
+*Paso 4.* `ordenados.headOption`
+
+* La lista no es vacía, da `Some(("Valle", 3))`.
+
+*Paso 5.* `.map(_._1)`
+
+* `_._1` de `("Valle", 3)` es `"Valle"`.
+* Resultado: `Some("Valle")`
+
+```Scala
+regionMasActiva(registro) == Some("Valle")
+```
+
+### Paso a paso con un empate
+
+```Scala
+val empate = List(
+  Sismo(Fecha(2025, 1), "Zulia", 4.0, 10),
+  Sismo(Fecha(2025, 1), "Arauca", 4.0, 10))
+```
+
+* `conteos == List(("Zulia", 1), ("Arauca", 1))`
+* criterios: `(-1, "Zulia")` y `(-1, "Arauca")`, empatan en `-1`.
+* `"Arauca" < "Zulia"`, entonces
+  `ordenados == List(("Arauca", 1), ("Zulia", 1))`
+* `headOption` da `Some(("Arauca", 1))` y `.map(_._1)` da `Some("Arauca")`
+
+### Paso a paso con el registro vacío
+
+* `conteoPorRegion(List())` es `Map()`, y `.toList` da `List()`.
+* `sortBy` sobre `List()` da `List()`.
+* `headOption` sobre `List()` da `None`.
+* `.map(_._1)` sobre `None` no hace nada y sigue siendo `None`.
+* Resultado: `None`
+
+### Otras entradas
+
+| llamada | resultado | por qué |
+|---|---|---|
+| `regionMasActiva(registro.filter(_.region != "Valle"))` | `Some("Choco")` | quedan Santander y Choco con 2 cada una, gana Choco alfabéticamente |
+| `regionMasActiva(registro.reverse)` | `Some("Valle")` | el conteo no depende del orden del registro (punto 2) |
+
+### Diagrama del proceso
+
+```mermaid
+flowchart TD
+    R["registro"] --> C["conteoPorRegion"]
+    C --> CS["withDefaultValue(0)"]
+    CS --> CS1["conteoSeguro: región ausente -> 0"]
+    R --> M["magnitudMaxima"]
+    M --> G["get(region)"]
+    G --> G1["Some(máxima)"]
+    G --> G2["None"]
+    C --> L["toList"]
+    L --> O["sortBy (-n, region)"]
+    O --> H["headOption"]
+    H --> H1["Some(pareja) -> map(_._1) -> Some(region)"]
+    H --> H2["None si el registro es vacío"]
+```
+
+---
+
+## Pruebas del punto 3
+
+Pruebas del punto 3 en `RegistroSismicoTest.scala`:
+
+| función | prueba |
+|---|---|
+| `conteoSeguro` | una región desconocida responde cero |
+| `conteoSeguro` | una región conocida responde su conteo |
+| `conteoSeguro` | sobre el registro vacío todo responde cero |
+| `maximaDe` | el Chocó llega a 6.0 |
+| `maximaDe` | una región sin registros da vacío |
+| `regionMasActiva` | el Valle, con tres sismos |
+| `regionMasActiva` | sobre el registro vacío da vacío |
+| `regionMasActiva` | en empate gana la primera alfabéticamente |
+
+Pruebas propias:
+
+| función | prueba | resultado esperado |
+|---|---|---|
+| `conteoSeguro` | Santander responde dos | `2` |
+| `conteoSeguro` | `"valle"` en minúscula no es `"Valle"` | `0` |
+| `maximaDe` | la máxima del Valle no es el primer sismo | `Some(5.3)` |
+| `maximaDe` | sobre el registro vacío | `None` |
+| `regionMasActiva` | sin el Valle empatan Santander y Choco | `Some("Choco")` |
+
+---
+
 # Punto 4: réplicas perezosas
 
 ## 1. `replicas`

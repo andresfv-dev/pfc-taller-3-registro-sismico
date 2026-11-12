@@ -598,6 +598,198 @@ y su máxima $5.3$. La prueba propia
 
 ---
 
+## Punto 3: consultas seguras
+
+Las tres funciones del punto 3 no recorren el registro por su cuenta, usan
+`conteoPorRegion` y `magnitudMaxima`, que ya se demostraron en 2.2 y 2.3. Por
+eso aquí no hace falta inducción: basta con ver qué hace cada operación sobre
+el mapa y usar lo que ya está demostrado.
+
+Notación: $c_r(g)$ es el número de sismos de la región $g$ en $r$ y
+$\text{mx}_r(g)$ su magnitud máxima:
+
+```math
+c_r(g) = |\{ i \mid \text{reg}(s_i) = g \}| \qquad \text{mx}_r(g) = \max \{ \text{mag}(s) \mid s \in r,\ \text{reg}(s) = g \}
+```
+
+Si $g \notin \text{regs}(r)$ entonces $c_r(g) = 0$, porque no hay ningún sismo
+de $g$.
+
+---
+
+### 3.1 `conteoSeguro`
+
+```scala
+def conteoSeguro(r: Registro): Map[String, Int] = {
+  conteoPorRegion(r).withDefaultValue(0)
+}
+```
+
+**Especificación.** Para **cualquier** región $g$, esté o no en el registro:
+
+```math
+\forall g : f(r)(g) = c_r(g)
+```
+
+**Cómo se evalúa `withDefaultValue`.** Si $M$ es un mapa y $d$ un valor:
+
+```math
+M.\text{withDefaultValue}(d)(g) \rightarrow
+\begin{cases}
+M(g) & \text{si } g \in \text{llaves}(M) \\
+d & \text{si } g \notin \text{llaves}(M)
+\end{cases}
+```
+
+y $\text{llaves}(M.\text{withDefaultValue}(d)) = \text{llaves}(M)$.
+
+**Demostración.** Sea $M = \text{conteoPorRegion}(r)$. Por 2.2,
+$\text{llaves}(M) = \text{regs}(r)$ y $M(g) = c_r(g)$ para
+$g \in \text{regs}(r)$. Hay dos casos:
+
+- $g \in \text{regs}(r)$: $P_f(r)(g) \rightarrow M(g) = c_r(g)$. ✔
+- $g \notin \text{regs}(r)$: $g$ no es llave de $M$, entonces
+  $P_f(r)(g) \rightarrow 0$, y como no hay sismos de $g$, $c_r(g) = 0$. ✔
+
+Entonces $\forall r, g : P_f(r)(g) == f(r)(g)$. En el segundo caso no se lanza
+excepción porque nunca se busca una llave que no existe sin valor por
+defecto.
+
+Con $r = \text{List}()$: $M = \text{Map}()$, ninguna $g$ es llave y todo
+responde $0$, que es lo que pide la prueba del registro vacío.
+
+---
+
+### 3.2 `maximaDe`
+
+```scala
+def maximaDe(r: Registro, region: String): Option[Double] = {
+  magnitudMaxima(r).get(region)
+}
+```
+
+**Especificación.**
+
+```math
+f(r, g) =
+\begin{cases}
+\text{Some}(\text{mx}_r(g)) & \text{si } g \in \text{regs}(r) \\
+\text{None} & \text{si } g \notin \text{regs}(r)
+\end{cases}
+```
+
+**Cómo se evalúa `get`.**
+
+```math
+M.\text{get}(g) \rightarrow
+\begin{cases}
+\text{Some}(M(g)) & \text{si } g \in \text{llaves}(M) \\
+\text{None} & \text{si } g \notin \text{llaves}(M)
+\end{cases}
+```
+
+**Demostración.** Sea $M = \text{magnitudMaxima}(r)$. Por 2.3,
+$\text{llaves}(M) = \text{regs}(r)$ y $M(g) = \text{mx}_r(g)$.
+
+- $g \in \text{regs}(r)$: $P_f(r, g) \rightarrow \text{Some}(M(g)) = \text{Some}(\text{mx}_r(g))$. ✔
+- $g \notin \text{regs}(r)$: $P_f(r, g) \rightarrow \text{None}$. ✔
+
+Entonces $\forall r, g : P_f(r, g) == f(r, g)$.
+
+Aquí también es importante lo que se vio en 2.3: `max` solo se llama sobre
+grupos no vacíos, entonces calcular $M$ no lanza excepción, y `get` tampoco.
+
+**Ejemplo:** `maximaDe(registro, "Choco")` $\rightarrow$
+$M.\text{get}(\text{"Choco"}) \rightarrow \text{Some}(6.0)$, y
+`maximaDe(registro, "Amazonas")` $\rightarrow \text{None}$.
+
+---
+
+### 3.3 `regionMasActiva`
+
+```scala
+def regionMasActiva(r: Registro): Option[String] = {
+  val conteos = conteoPorRegion(r).toList
+  val ordenados = conteos.sortBy { case (region, n) => (-n, region) }
+  ordenados.headOption.map(_._1)
+}
+```
+
+**Especificación.** Sea $\text{top}(r) = \max_{g \in \text{regs}(r)} c_r(g)$.
+
+```math
+f(r) =
+\begin{cases}
+\text{None} & \text{si } r = \text{List}() \\
+\text{Some}\big(\min_{\text{alf}} \{ g \in \text{regs}(r) \mid c_r(g) = \text{top}(r) \}\big) & \text{si } r \ne \text{List}()
+\end{cases}
+```
+
+donde $\min_{\text{alf}}$ es la primera en orden alfabético.
+
+**El orden de `sortBy`.** Cada pareja $(g, n)$ se cambia por su criterio
+$k(g, n) = (-n, g)$ y las parejas quedan de menor a mayor criterio. Las
+tuplas se comparan así:
+
+```math
+(a_1, b_1) < (a_2, b_2) \iff a_1 < a_2 \ \lor\ (a_1 = a_2 \land b_1 < b_2)
+```
+
+**Cómo se evalúan `headOption` y `map` sobre `Option`.**
+
+```math
+\text{List}().\text{headOption} \rightarrow \text{None} \qquad (x :: l).\text{headOption} \rightarrow \text{Some}(x)
+```
+
+```math
+\text{None}.\text{map}(h) \rightarrow \text{None} \qquad \text{Some}(x).\text{map}(h) \rightarrow \text{Some}(h(x))
+```
+
+**Demostración.** Sea $L$ = `conteoPorRegion(r).toList`. Por 2.2, $L$ tiene
+exactamente una pareja $(g, c_r(g))$ por cada $g \in \text{regs}(r)$, en algún
+orden.
+
+**Caso $r = \text{List}()$:** $\text{regs}(r) = \emptyset$, entonces
+$L = \text{List}()$.
+
+```math
+P_f(\text{List}()) \rightarrow \text{List}().\text{sortBy}(k).\text{headOption}.\text{map}(\_.\_1) \rightarrow \text{None}.\text{map}(\_.\_1) \rightarrow \text{None}
+```
+
+que es $f(\text{List}())$. ✔
+
+**Caso $r \ne \text{List}()$:** hay al menos una región, entonces $L$ no es
+vacía y la lista ordenada tampoco. Sea $(g^*, n^*)$ la primera pareja de la
+lista ordenada, o sea la de **menor** criterio. Entonces:
+
+```math
+P_f(r) \rightarrow \text{Some}((g^*, n^*)).\text{map}(\_.\_1) \rightarrow \text{Some}(g^*)
+```
+
+Falta ver que $g^*$ es la región que pide la especificación:
+
+1. El primer componente del criterio es $-n$. El menor $-n$ es el mayor $n$,
+   entonces $n^* = \text{top}(r)$: $g^*$ es una de las regiones con más
+   sismos.
+2. Si hay varias con $n = \text{top}(r)$, todas tienen el mismo primer
+   componente $-\text{top}(r)$, y se desempata por el segundo, que es el
+   nombre. La menor es la primera en orden alfabético.
+
+Entonces $g^* = \min_{\text{alf}} \{ g \mid c_r(g) = \text{top}(r) \}$ y
+$P_f(r) == f(r)$. ✔
+
+**No depende del orden de `toList`.** Las llaves de un mapa son distintas,
+entonces no hay dos parejas con el mismo criterio $(-n, g)$. Por eso la lista
+ordenada es siempre la misma sin importar en qué orden salieron las parejas
+del mapa.
+
+**Ejemplo con empate:** con Zulia y Arauca, un sismo cada una, los criterios
+son $(-1, \text{"Zulia"})$ y $(-1, \text{"Arauca"})$. Empatan en $-1$ y
+$\text{"Arauca"} < \text{"Zulia"}$, entonces el resultado es
+$\text{Some}(\text{"Arauca"})$.
+
+---
+
 ## 4. Réplicas perezosas
 
 ### 4.1 `replicas`
