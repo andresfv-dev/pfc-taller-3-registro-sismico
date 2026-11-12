@@ -64,13 +64,22 @@ class RegistroSismico {
   // Punto 3: consultas seguras --------------------------------------------------
 
   /** Un mapa que responde cero por las regiones que no están en el registro. */
-  def conteoSeguro(r: Registro): Map[String, Int] = ???
+  def conteoSeguro(r: Registro): Map[String, Int] = {
+   conteoPorRegion(r).withDefaultValue(0)
+  }
 
   /** La magnitud máxima de una región, o vacío si no hay registros suyos. */
-  def maximaDe(r: Registro, region: String): Option[Double] = ???
+  def maximaDe(r: Registro, region: String): Option[Double] = {
+   magnitudMaxima(r).get(region)
+  }
 
   /** La región con más sismos; en empate, la primera en orden alfabético. */
-  def regionMasActiva(r: Registro): Option[String] = ???
+  def regionMasActiva(r: Registro): Option[String] = {
+   val conteos = conteoPorRegion(r).toList
+   // se ordena por mas sismos primero y si empatan por el nombre
+   val ordenados = conteos.sortBy { case (region, n) => (-n, region) }
+   ordenados.headOption.map(_._1)
+  }
 
   // Punto 4: réplicas perezosas -------------------------------------------------
 
