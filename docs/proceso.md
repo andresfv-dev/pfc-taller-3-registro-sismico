@@ -1650,9 +1650,7 @@ completa de Gradle. El informe de resultados registra siete del punto 4 y cinco
 del punto 5, sin fallos. Junto con las 14 pruebas propias, son 26 pruebas
 aprobadas para los puntos 4 y 5.
 
-La ejecución completa con `./gradlew.bat test --no-daemon` dio 61 pruebas:
-53 aprobadas y ocho fallidas, todas por `scala.NotImplementedError` en
-`conteoSeguro`, `maximaDe` y `regionMasActiva` del punto 3. El build normal,
-`./gradlew.bat build --no-daemon`, generó el JAR y las distribuciones, pero
-terminó con error en `:app:test` por esos mismos ocho casos. La compilación
-y Scalastyle pasaron; el build completo queda pendiente de completar el punto 3.
+La ejecución completa con `./gradlew test --no-daemon` dio 66 pruebas, todas
+aprobadas: 52 en `RegistroSismicoTest.scala` (las 37 dadas y las propias de
+los puntos 1, 2 y 3) y 14 en `RegistroSismicoPuntos45Test.scala`. Scalastyle
+terminó con cero errores y cero advertencias.
