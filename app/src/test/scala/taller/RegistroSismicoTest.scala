@@ -173,6 +173,29 @@ class RegistroSismicoTest extends AnyFunSuite {
     assert(regionMasActiva(empate) == Some("Arauca"))
   }
 
+  // Punto 3: pruebas propias --------------------------------------------------
+
+  test("propia conteoSeguro: Santander responde dos") {
+    assert(conteoSeguro(registro)("Santander") == 2)
+  }
+
+  test("propia conteoSeguro: valle en minuscula no es Valle y da cero") {
+    assert(conteoSeguro(registro)("valle") == 0)
+  }
+
+  test("propia maximaDe: la maxima del Valle es 5.3 aunque no sea el primero") {
+    assert(maximaDe(registro, "Valle") == Some(5.3))
+  }
+
+  test("propia maximaDe: sobre el registro vacio da vacio") {
+    assert(maximaDe(vacio, "Choco") == None)
+  }
+
+  test("propia regionMasActiva: sin el Valle empatan Santander y Choco, gana Choco") {
+    val sinValle = registro.filter(_.region != "Valle")
+    assert(regionMasActiva(sinValle) == Some("Choco"))
+  }
+
   // Punto 4 -------------------------------------------------------------------
 
   test("replicas: las primeras cuatro de un sismo de 5.0") {
